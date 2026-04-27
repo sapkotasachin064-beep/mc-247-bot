@@ -3,80 +3,75 @@ const express = require('express');
 const app = express();
 const port = process.env.PORT || 8080;
 
-let botStatus = "System Booting...";
+let botStatus = "Offline";
 let lastChat = [];
 let bot;
 
 function createBot() {
-    botStatus = "Connecting to 62.141.62.23:22664...";
+    botStatus = "Connecting...";
     
+    // USING THE NUMERIC IP FROM YOUR PRIMARY PORT LIST
     bot = mineflayer.createBot({
         host: '62.141.62.23', 
         port: 22664, 
         username: 'THE_INFERNAL_VOID',
-        version: '1.21.1', // Ensure this matches your server!
-        hideErrors: false
+        version: '1.21.1',
+        hideErrors: false,
+        checkTimeoutInterval: 60000
     });
 
     bot.on('spawn', () => {
-        botStatus = "Online & Active";
-        console.log("Bot joined the server.");
-        // Auto-Login
+        botStatus = "Online";
         bot.chat('/register Pass1234 Pass1234');
         bot.chat('/login Pass1234');
-
-        // Simple Anti-AFK
-        setInterval(() => {
-            if (botStatus === "Online & Active") {
-                bot.swingArm('right');
-            }
-        }, 30000);
+        
+        // Simple arm swing every 20s to stay active
+        setInterval(() => { if(botStatus === "Online") bot.swingArm('right'); }, 20000);
     });
 
     bot.on('chat', (username, message) => {
         const time = new Date().toLocaleTimeString();
         lastChat.push(`[${time}] ${username}: ${message}`);
-        if (lastChat.length > 20) lastChat.shift();
+        if (lastChat.length > 15) lastChat.shift();
     });
 
     bot.on('error', (err) => {
         botStatus = `Error: ${err.code}`;
-        console.log("Connection Error:", err);
-    });
-
-    bot.on('kicked', (reason) => {
-        botStatus = "Kicked: Check Server Console";
-        console.log("Kicked for:", reason);
+        console.log("Internal Error:", err.code);
     });
 
     bot.on('end', () => {
-        botStatus = "Reconnecting in 10s...";
+        botStatus = "Reconnecting...";
+        // Standard 10s delay to avoid "Connection Throttled" errors
         setTimeout(createBot, 10000);
     });
 }
 
-// GUI Dashboard
+// THE FIXED GUI
 app.get('/', (req, res) => {
+    const statusColor = botStatus === "Online" ? "#00ff00" : "#ff0000";
     res.send(`
         <html>
             <head>
-                <title>Infernal Void Panel</title>
+                <title>INFERNAL VOID OS</title>
                 <style>
-                    body { background: #0a0a0a; color: #00ff00; font-family: 'Courier New', monospace; padding: 20px; }
-                    .card { border: 1px solid #333; padding: 20px; max-width: 700px; margin: auto; box-shadow: 0 0 15px #ff000033; }
-                    .status { font-size: 18px; margin-bottom: 20px; color: #fff; border-bottom: 1px solid #222; padding-bottom: 10px; }
-                    .console { background: #000; height: 300px; overflow-y: auto; padding: 10px; border: 1px solid #111; font-size: 13px; color: #888; }
-                    .btn { background: #ff4444; color: #000; border: none; padding: 10px; cursor: pointer; font-weight: bold; margin-top: 10px; width: 100%; }
+                    body { background: #050505; color: #0f0; font-family: 'Segoe UI', monospace; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+                    .panel { width: 90%; max-width: 600px; background: #111; border: 1px solid #333; padding: 20px; box-shadow: 0 0 20px rgba(0,255,0,0.1); }
+                    .header { border-bottom: 1px solid #222; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; }
+                    .terminal { background: #000; height: 250px; overflow-y: auto; padding: 10px; border-radius: 4px; border: 1px solid #222; font-size: 13px; color: #aaa; }
+                    .status-dot { height: 10px; width: 10px; background-color: ${statusColor}; border-radius: 50%; display: inline-block; margin-right: 5px; box-shadow: 0 0 10px ${statusColor}; }
                 </style>
             </head>
             <body>
-                <div class="card">
-                    <h2>>> INFERNAL_VOID_OS</h2>
-                    <div class="status">STATUS: <span style="color:#0f0">${botStatus}</span></div>
-                    <div class="console" id="log">
-                        ${lastChat.map(m => `<p>${m}</p>`).join('')}
+                <div class="panel">
+                    <div class="header">
+                        <span>>> INFERNAL_VOID_OS_v3</span>
+                        <span><span class="status-dot"></span>${botStatus}</span>
                     </div>
-                    <button class="btn" onclick="location.reload()">FORCE REFRESH GUI</button>
+                    <div class="terminal" id="log">
+                        ${lastChat.length > 0 ? lastChat.map(m => `<p style="margin:2px 0;">${m}</p>`).join('') : '<p style="color:#444">Waiting for logs...</p>'}
+                    </div>
+                    <p style="font-size: 10px; color: #444; margin-top: 10px;">AUTO-REFRESH ACTIVE (5s)</p>
                 </div>
                 <script>
                     const l = document.getElementById('log'); l.scrollTop = l.scrollHeight;
@@ -88,6 +83,6 @@ app.get('/', (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`Web interface live on ${port}`);
+    console.log(`Web Port: ${port}`);
     createBot();
 });
