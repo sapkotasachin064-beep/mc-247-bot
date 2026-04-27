@@ -1,88 +1,141 @@
 const mineflayer = require('mineflayer');
 const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 const port = process.env.PORT || 8080;
 
-let botStatus = "Offline";
-let lastChat = [];
+// Default Config (Updated to your Primary IP)
+let config = {
+    host: '62.141.62.23',
+    port: 22664,
+    username: 'INFERNAL_VOID',
+    version: '1.21.1'
+};
+
 let bot;
+let botStatus = "Offline";
+
+function sendLog(msg) {
+    const time = new Date().toLocaleTimeString();
+    const formattedMsg = `[${time}] ${msg}`;
+    console.log(formattedMsg);
+    io.emit('log', formattedMsg); // Streams log to web UI
+}
 
 function createBot() {
-    botStatus = "Connecting...";
+    if (bot) bot.quit();
     
-    // USING THE NUMERIC IP FROM YOUR PRIMARY PORT LIST
-    bot = mineflayer.createBot({
-        host: '62.141.62.23', 
-        port: 22664, 
-        username: 'INFERNAL_VOID',
-        version: '1.21.1',
-        hideErrors: false,
-        checkTimeoutInterval: 60000
-    });
+    botStatus = "Connecting...";
+    io.emit('status', botStatus);
+    sendLog(`Attempting connection to ${config.host}:${config.port}...`);
+
+    bot = mineflayer.createBot(config);
 
     bot.on('spawn', () => {
         botStatus = "Online";
-        bot.chat('/register Pass1234 Pass1234');
+        io.emit('status', botStatus);
+        sendLog("Successfully spawned in the world.");
         bot.chat('/login Pass1234');
-        
-        // Simple arm swing every 20s to stay active
-        setInterval(() => { if(botStatus === "Online") bot.swingArm('right'); }, 20000);
     });
 
     bot.on('chat', (username, message) => {
-        const time = new Date().toLocaleTimeString();
-        lastChat.push(`[${time}] ${username}: ${message}`);
-        if (lastChat.length > 15) lastChat.shift();
+        sendLog(`<${username}> ${message}`);
     });
 
     bot.on('error', (err) => {
-        botStatus = `Error: ${err.code}`;
-        console.log("Internal Error:", err.code);
+        botStatus = "Error";
+        io.emit('status', botStatus);
+        sendLog(`System Error: ${err.message}`);
+    });
+
+    bot.on('kicked', (reason) => {
+        botStatus = "Kicked";
+        io.emit('status', botStatus);
+        sendLog(`Kicked from server: ${reason}`);
     });
 
     bot.on('end', () => {
-        botStatus = "Reconnecting...";
-        // Standard 10s delay to avoid "Connection Throttled" errors
+        botStatus = "Disconnected";
+        io.emit('status', botStatus);
+        sendLog("Connection lost. Retrying in 10s...");
         setTimeout(createBot, 10000);
     });
 }
 
-// THE FIXED GUI
+// WEB DASHBOARD HTML
 app.get('/', (req, res) => {
-    const statusColor = botStatus === "Online" ? "#00ff00" : "#ff0000";
     res.send(`
         <html>
             <head>
-                <title>INFERNAL VOID OS</title>
+                <title>INFERNAL VOID | OS v4</title>
+                <script src="/socket.io/socket.io.js"></script>
                 <style>
-                    body { background: #050505; color: #0f0; font-family: 'Segoe UI', monospace; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-                    .panel { width: 90%; max-width: 600px; background: #111; border: 1px solid #333; padding: 20px; box-shadow: 0 0 20px rgba(0,255,0,0.1); }
-                    .header { border-bottom: 1px solid #222; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; }
-                    .terminal { background: #000; height: 250px; overflow-y: auto; padding: 10px; border-radius: 4px; border: 1px solid #222; font-size: 13px; color: #aaa; }
-                    .status-dot { height: 10px; width: 10px; background-color: ${statusColor}; border-radius: 50%; display: inline-block; margin-right: 5px; box-shadow: 0 0 10px ${statusColor}; }
+                    body { background: #080808; color: #0f0; font-family: 'Consolas', monospace; padding: 20px; }
+                    .grid { display: grid; grid-template-columns: 1fr 300px; gap: 20px; max-width: 1000px; margin: auto; }
+                    .console { background: #000; border: 1px solid #333; height: 400px; overflow-y: auto; padding: 15px; font-size: 13px; color: #ccc; }
+                    .sidebar { background: #111; padding: 15px; border: 1px solid #333; }
+                    input { background: #000; border: 1px solid #444; color: #0f0; width: 100%; padding: 8px; margin-bottom: 10px; }
+                    .btn { background: #0f0; color: #000; border: none; width: 100%; padding: 10px; font-weight: bold; cursor: pointer; }
+                    .status { font-size: 20px; margin-bottom: 20px; color: #fff; }
                 </style>
             </head>
             <body>
-                <div class="panel">
-                    <div class="header">
-                        <span>>> INFERNAL_VOID_OS_v3</span>
-                        <span><span class="status-dot"></span>${botStatus}</span>
+                <h1 style="text-align:center; color:#ff4444;">>> INFERNAL_VOID_REALTIME_OS</h1>
+                <div class="grid">
+                    <div class="console" id="logBox"></div>
+                    <div class="sidebar">
+                        <div class="status">STATUS: <span id="statText">${botStatus}</span></div>
+                        <label>Target IP:</label>
+                        <input type="text" id="ipInput" value="${config.host}">
+                        <label>Target Port:</label>
+                        <input type="text" id="portInput" value="${config.port}">
+                        <button class="btn" onclick="updateConfig()">UPDATE & RECONNECT</button>
                     </div>
-                    <div class="terminal" id="log">
-                        ${lastChat.length > 0 ? lastChat.map(m => `<p style="margin:2px 0;">${m}</p>`).join('') : '<p style="color:#444">Waiting for logs...</p>'}
-                    </div>
-                    <p style="font-size: 10px; color: #444; margin-top: 10px;">AUTO-REFRESH ACTIVE (5s)</p>
                 </div>
+
                 <script>
-                    const l = document.getElementById('log'); l.scrollTop = l.scrollHeight;
-                    setTimeout(() => location.reload(), 5000);
+                    const socket = io();
+                    const logBox = document.getElementById('logBox');
+                    
+                    socket.on('log', (msg) => {
+                        const p = document.createElement('p');
+                        p.textContent = msg;
+                        p.style.margin = '2px 0';
+                        logBox.appendChild(p);
+                        logBox.scrollTop = logBox.scrollHeight;
+                    });
+
+                    socket.on('status', (s) => {
+                        document.getElementById('statText').textContent = s;
+                    });
+
+                    function updateConfig() {
+                        const newIp = document.getElementById('ipInput').value;
+                        const newPort = document.getElementById('portInput').value;
+                        socket.emit('updateConfig', { host: newIp, port: parseInt(newPort) });
+                        alert("Settings updated. Reconnecting...");
+                    }
                 </script>
             </body>
         </html>
     `);
 });
 
-app.listen(port, () => {
-    console.log(`Web Port: ${port}`);
+// Real-time config updates via Socket
+io.on('connection', (socket) => {
+    socket.on('updateConfig', (data) => {
+        config.host = data.host;
+        config.port = data.port;
+        sendLog(`Config updated by user to ${config.host}:${config.port}`);
+        createBot(); // Re-trigger connection with new IP
+    });
+});
+
+server.listen(port, () => {
+    console.log(`System Online on port ${port}`);
     createBot();
 });
