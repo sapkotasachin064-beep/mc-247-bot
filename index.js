@@ -14,7 +14,7 @@ function createBot() {
     bot = mineflayer.createBot({
         host: '62.141.62.23', 
         port: 22664, 
-        username: 'THE_INFERNAL_VOID',
+        username: 'INFERNAL_VOID',
         version: '1.21.1',
         hideErrors: false,
         checkTimeoutInterval: 60000
