@@ -9,7 +9,7 @@ let lastChat = [];
 function createBot() {
     const bot = mineflayer.createBot({
         host: 'InfernalVoid.play.hosting',
-        port: 2520,
+        port: 56202,
         username: 'THE_INFERNAL_VOID',
         version: '1.21.1',
         hideErrors: true
