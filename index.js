@@ -20,7 +20,7 @@ function createBot() {
         console.log("Bot joined the Void.");
         
         // AUTO-LOGIN (Change 'yourpassword' below)
-        bot.chat('/login yourpassword'); 
+        bot.chat('/register yourpassword yourpassword'); 
 
         // ADVANCED ANTI-AFK (Randomized)
         setInterval(() => {
