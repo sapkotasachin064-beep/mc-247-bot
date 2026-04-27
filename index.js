@@ -4,7 +4,7 @@ function createBot() {
     const bot = mineflayer.createBot({
         host: 'InfernalVoid.play.hosting', // <--- REPLACE THIS
         port: 2520,             // <--- CHANGE IF YOUR PORT IS DIFFERENT
-        username: 'StayAlive_Bot',
+        username: 'THE_INFERNAL_VOID',
         version: '1.21.1'        // <--- MATCH YOUR SERVER VERSION
     });
 
