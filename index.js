@@ -8,12 +8,12 @@ const server = http.createServer(app);
 const io = new Server(server);
 const port = process.env.PORT || 8080;
 
-// Default Config (Updated to your Primary IP)
+// NEW CONFIG: No port specified to allow SRV lookup
 let config = {
-    host: '62.141.62.23',
-    port: 22664,
+    host: 'InfernalVoid.play.hosting',
     username: 'INFERNAL_VOID',
-    version: '1.21.1'
+    version: '1.21.1',
+    hideErrors: false
 };
 
 let bot;
@@ -21,25 +21,45 @@ let botStatus = "Offline";
 
 function sendLog(msg) {
     const time = new Date().toLocaleTimeString();
-    const formattedMsg = `[${time}] ${msg}`;
-    console.log(formattedMsg);
-    io.emit('log', formattedMsg); // Streams log to web UI
+    io.emit('log', `[${time}] ${msg}`);
+    console.log(`[${time}] ${msg}`);
 }
 
 function createBot() {
-    if (bot) bot.quit();
+    if (bot) {
+        bot.removeAllListeners();
+        bot.quit();
+    }
     
     botStatus = "Connecting...";
     io.emit('status', botStatus);
-    sendLog(`Attempting connection to ${config.host}:${config.port}...`);
+    sendLog(`Connecting to ${config.host} as ${config.username}...`);
 
-    bot = mineflayer.createBot(config);
+    // Removed port from options to force Mineflayer to resolve SRV records
+    bot = mineflayer.createBot({
+        host: config.host,
+        username: config.username,
+        version: config.version,
+        connectTimeout: 30000,
+        keepAlive: true
+    });
 
     bot.on('spawn', () => {
         botStatus = "Online";
         io.emit('status', botStatus);
-        sendLog("Successfully spawned in the world.");
+        sendLog("SYSTEM: Bot spawned successfully.");
+        
+        // DIRECT LOGIN COMMAND
         bot.chat('/login Pass1234');
+        sendLog("SYSTEM: Sent login command.");
+
+        // ANTI-AFK ACTIVITY
+        setInterval(() => {
+            if (botStatus === "Online") {
+                bot.swingArm('right');
+                bot.look(bot.entity.yaw + 0.1, 0);
+            }
+        }, 25000);
     });
 
     bot.on('chat', (username, message) => {
@@ -49,75 +69,59 @@ function createBot() {
     bot.on('error', (err) => {
         botStatus = "Error";
         io.emit('status', botStatus);
-        sendLog(`System Error: ${err.message}`);
+        sendLog(`CRITICAL ERROR: ${err.message}`);
     });
 
     bot.on('kicked', (reason) => {
         botStatus = "Kicked";
         io.emit('status', botStatus);
-        sendLog(`Kicked from server: ${reason}`);
+        sendLog(`KICKED: ${reason}`);
     });
 
     bot.on('end', () => {
-        botStatus = "Disconnected";
+        botStatus = "Reconnecting";
         io.emit('status', botStatus);
-        sendLog("Connection lost. Retrying in 10s...");
-        setTimeout(createBot, 10000);
+        sendLog("Connection ended. Retrying in 15 seconds...");
+        setTimeout(createBot, 15000);
     });
 }
 
-// WEB DASHBOARD HTML
+// GUI AND SOCKET LOGIC
 app.get('/', (req, res) => {
     res.send(`
         <html>
             <head>
-                <title>INFERNAL VOID | OS v4</title>
+                <title>INFERNAL VOID | DIRECT CONNECT</title>
                 <script src="/socket.io/socket.io.js"></script>
                 <style>
-                    body { background: #080808; color: #0f0; font-family: 'Consolas', monospace; padding: 20px; }
-                    .grid { display: grid; grid-template-columns: 1fr 300px; gap: 20px; max-width: 1000px; margin: auto; }
-                    .console { background: #000; border: 1px solid #333; height: 400px; overflow-y: auto; padding: 15px; font-size: 13px; color: #ccc; }
-                    .sidebar { background: #111; padding: 15px; border: 1px solid #333; }
-                    input { background: #000; border: 1px solid #444; color: #0f0; width: 100%; padding: 8px; margin-bottom: 10px; }
-                    .btn { background: #0f0; color: #000; border: none; width: 100%; padding: 10px; font-weight: bold; cursor: pointer; }
-                    .status { font-size: 20px; margin-bottom: 20px; color: #fff; }
+                    body { background: #000; color: #0f0; font-family: 'Courier New', monospace; padding: 20px; }
+                    .box { border: 2px solid #ff4444; padding: 20px; background: #050505; max-width: 900px; margin: auto; }
+                    #log { height: 350px; overflow-y: auto; border: 1px solid #222; padding: 10px; margin: 10px 0; color: #ccc; background: #000; font-size: 12px; }
+                    input { background: #000; border: 1px solid #ff4444; color: #fff; padding: 8px; width: 300px; }
+                    .btn { background: #ff4444; color: #000; border: none; padding: 10px 20px; cursor: pointer; font-weight: bold; }
+                    .status-line { font-size: 22px; font-weight: bold; color: #fff; margin-bottom: 10px; }
                 </style>
             </head>
             <body>
-                <h1 style="text-align:center; color:#ff4444;">>> INFERNAL_VOID_REALTIME_OS</h1>
-                <div class="grid">
-                    <div class="console" id="logBox"></div>
-                    <div class="sidebar">
-                        <div class="status">STATUS: <span id="statText">${botStatus}</span></div>
-                        <label>Target IP:</label>
-                        <input type="text" id="ipInput" value="${config.host}">
-                        <label>Target Port:</label>
-                        <input type="text" id="portInput" value="${config.port}">
-                        <button class="btn" onclick="updateConfig()">UPDATE & RECONNECT</button>
+                <div class="box">
+                    <div class="status-line">OS_STATUS: <span id="st">BOOTING</span></div>
+                    <div id="log"></div>
+                    <p style="color: #444;">Connected Host: <strong>${config.host}</strong> | User: <strong>${config.username}</strong></p>
+                    <div style="border-top: 1px solid #222; padding-top: 10px;">
+                        <input type="text" id="ip" value="${config.host}" placeholder="Change IP/Domain"> 
+                        <button class="btn" onclick="update()">UPDATE HOST</button>
                     </div>
                 </div>
-
                 <script>
                     const socket = io();
-                    const logBox = document.getElementById('logBox');
-                    
-                    socket.on('log', (msg) => {
-                        const p = document.createElement('p');
-                        p.textContent = msg;
-                        p.style.margin = '2px 0';
-                        logBox.appendChild(p);
-                        logBox.scrollTop = logBox.scrollHeight;
+                    socket.on('log', (m) => {
+                        const d = document.getElementById('log');
+                        d.innerHTML += '<p style="margin:2px">'+m+'</p>';
+                        d.scrollTop = d.scrollHeight;
                     });
-
-                    socket.on('status', (s) => {
-                        document.getElementById('statText').textContent = s;
-                    });
-
-                    function updateConfig() {
-                        const newIp = document.getElementById('ipInput').value;
-                        const newPort = document.getElementById('portInput').value;
-                        socket.emit('updateConfig', { host: newIp, port: parseInt(newPort) });
-                        alert("Settings updated. Reconnecting...");
+                    socket.on('status', (s) => { document.getElementById('st').innerText = s.toUpperCase(); });
+                    function update() {
+                        socket.emit('up', { h: document.getElementById('ip').value });
                     }
                 </script>
             </body>
@@ -125,17 +129,15 @@ app.get('/', (req, res) => {
     `);
 });
 
-// Real-time config updates via Socket
-io.on('connection', (socket) => {
-    socket.on('updateConfig', (data) => {
-        config.host = data.host;
-        config.port = data.port;
-        sendLog(`Config updated by user to ${config.host}:${config.port}`);
-        createBot(); // Re-trigger connection with new IP
+io.on('connection', (s) => {
+    s.on('up', (d) => {
+        config.host = d.h;
+        sendLog(`MANUAL OVERRIDE: Changing host to ${d.h}`);
+        createBot();
     });
 });
 
 server.listen(port, () => {
-    console.log(`System Online on port ${port}`);
+    sendLog("INFERNAL_VOID_OS initialized. Dashboard live.");
     createBot();
 });
