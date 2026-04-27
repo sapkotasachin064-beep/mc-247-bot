@@ -60,10 +60,10 @@ function createBot() {
 
         // --- STEP 3: GO TO COORDINATES ---
         // Replace X, Y, Z with your actual numbers
-        setTimeout(() => {
-            const x = 100; // Put your X here
-            const y = 64;  // Put your Y here
-            const z = 100; // Put your Z here
+       // setTimeout(() => {
+       //     const x = 100; // Put your X here
+         //   const y = 64;  // Put your Y here
+           // const z = 100; // Put your Z here
             
             // This makes the bot look at the spot and walk there (requires pathfinding)
             // For simple "Snap to position", we use this:
