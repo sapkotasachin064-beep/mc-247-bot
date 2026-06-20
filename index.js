@@ -6,149 +6,227 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
-const port = process.env.PORT || 8080;
 
-let config = {
+const PORT = process.env.PORT || 8080;
+
+const config = {
     host: 'InfernalVoid.play.hosting',
     username: 'INFERNAL_VOID',
     version: '1.21.1'
 };
 
-let bot;
-let botStatus = "Offline";
+let bot = null;
+let botStatus = 'Offline';
+let antiAfkInterval = null;
+let reconnectTimeout = null;
 
-function sendLog(msg) {
+function sendLog(message) {
     const time = new Date().toLocaleTimeString();
-    io.emit('log', `[${time}] ${msg}`);
-    console.log(`[${time}] ${msg}`);
+    const formatted = `[${time}] ${message}`;
+
+    console.log(formatted);
+    io.emit('log', formatted);
+}
+
+function updateStatus(status) {
+    botStatus = status;
+    io.emit('status', status);
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function startAntiAFK() {
+    if (antiAfkInterval) {
+        clearInterval(antiAfkInterval);
+    }
+
+    antiAfkInterval = setInterval(() => {
+        if (!bot || !bot.entity || botStatus !== 'Online') return;
+
+        const action = Math.random();
+
+        try {
+            if (action < 0.5) {
+                bot.swingArm('right');
+                sendLog('AFK: swing arm');
+            } else {
+                bot.setControlState('jump', true);
+
+                setTimeout(() => {
+                    if (bot) {
+                        bot.setControlState('jump', false);
+                    }
+                }, 300);
+
+                sendLog('AFK: jump');
+            }
+        } catch (err) {
+            sendLog(`AFK ERROR: ${err.message}`);
+        }
+    }, 30000); // every 30 seconds
+}
+
+function stopAntiAFK() {
+    if (antiAfkInterval) {
+        clearInterval(antiAfkInterval);
+        antiAfkInterval = null;
+    }
+}
+
+function scheduleReconnect() {
+    if (reconnectTimeout) return;
+
+    sendLog('Reconnecting in 15 seconds...');
+
+    reconnectTimeout = setTimeout(() => {
+        reconnectTimeout = null;
+        createBot();
+    }, 15000);
 }
 
 function createBot() {
+    stopAntiAFK();
+
     if (bot) {
-        bot.removeAllListeners();
-        bot.quit();
+        try {
+            bot.removeAllListeners();
+            bot.quit();
+        } catch (e) {}
     }
-    
-    botStatus = "Connecting...";
-    io.emit('status', botStatus);
-    sendLog(`Connecting to ${config.host} as ${config.username}...`);
+
+    updateStatus('Connecting');
+
+    sendLog(
+        `Connecting to ${config.host} as ${config.username}...`
+    );
 
     bot = mineflayer.createBot({
         host: config.host,
         username: config.username,
         version: config.version,
-        connectTimeout: 30000,
-        keepAlive: true
+        connectTimeout: 30000
     });
 
-    bot.on('spawn', () => {
-        botStatus = "Online";
-        io.emit('status', botStatus);
-        sendLog("SYSTEM: Bot spawned. Starting AFK Sequence...");
-        
-        // --- STEP 1: LOGIN ---
-        setTimeout(() => {
+    bot.once('spawn', async () => {
+        try {
+            updateStatus('Online');
+            sendLog('Bot spawned successfully.');
+
+            await sleep(3000);
+
             bot.chat('/login Pass1234');
-            sendLog("SYSTEM: Executed /login.");
-        }, 2000);
+            sendLog('Executed /login');
 
-        // --- STEP 2: WARP TO AFK ---
-        setTimeout(() => {
+            await sleep(5000);
+
             bot.chat('/warp AFK');
-            sendLog("SYSTEM: Executed /warp AFK.");
-        }, 5000);
+            sendLog('Executed /warp AFK');
 
-        // --- STEP 3: GO TO COORDINATES ---
-        // Replace X, Y, Z with your actual numbers
-       // setTimeout(() => {
-       //     const x = 100; // Put your X here
-         //   const y = 64;  // Put your Y here
-           // const z = 100; // Put your Z here
-            
-            // This makes the bot look at the spot and walk there (requires pathfinding)
-            // For simple "Snap to position", we use this:
-            bot.chat(`/tp ${x} ${y} ${z}`);
-            sendLog(`SYSTEM: Moved to AFK Coordinates (${x}, ${y}, ${z}).`);
-        }, 8000);
-    });
+            await sleep(3000);
 
-    // --- ADVANCED ANTI-AFK ENGINE ---
-    setInterval(() => {
-        if (botStatus === "Online" && bot.entity) {
-            // Randomly pick an action to look like a human
-            const roll = Math.random();
-            if (roll < 0.3) {
-                bot.swingArm('right');
-            } else if (roll < 0.6) {
-                const yaw = bot.entity.yaw + (Math.random() * 0.5 - 0.25);
-                const pitch = (Math.random() * 0.2 - 0.1);
-                bot.look(yaw, pitch);
-            } else {
-                bot.setControlState('jump', true);
-                setTimeout(() => bot.setControlState('jump', false), 500);
-            }
+            startAntiAFK();
+            sendLog('Anti-AFK engine started.');
+        } catch (err) {
+            sendLog(`Spawn sequence error: ${err.message}`);
         }
-    }, 20000); // Runs every 20 seconds
+    });
 
     bot.on('chat', (username, message) => {
         sendLog(`<${username}> ${message}`);
     });
 
-    bot.on('error', (err) => {
-        botStatus = "Error";
-        io.emit('status', botStatus);
-        sendLog(`CRITICAL ERROR: ${err.message}`);
+    bot.on('message', message => {
+        sendLog(`[SERVER] ${message.toString()}`);
     });
 
-    bot.on('kicked', (reason) => {
-        botStatus = "Kicked";
-        io.emit('status', botStatus);
-        sendLog(`KICKED: ${reason}`);
+    bot.on('kicked', reason => {
+        updateStatus('Kicked');
+        sendLog(`KICKED: ${JSON.stringify(reason)}`);
+        stopAntiAFK();
+    });
+
+    bot.on('error', err => {
+        updateStatus('Error');
+        sendLog(`ERROR: ${err.message}`);
     });
 
     bot.on('end', () => {
-        botStatus = "Reconnecting";
-        io.emit('status', botStatus);
-        sendLog("Connection ended. Retrying in 15 seconds...");
-        setTimeout(createBot, 15000);
+        updateStatus('Disconnected');
+        sendLog('Connection ended.');
+
+        stopAntiAFK();
+        scheduleReconnect();
     });
 }
 
-// DASHBOARD GUI
 app.get('/', (req, res) => {
     res.send(`
-        <html>
-            <head>
-                <title>INFERNAL VOID | ELITE AFK</title>
-                <script src="/socket.io/socket.io.js"></script>
-                <style>
-                    body { background: #050505; color: #0f0; font-family: 'Courier New', monospace; padding: 20px; }
-                    .box { border: 2px solid #ff4444; padding: 20px; background: #000; max-width: 900px; margin: auto; box-shadow: 0 0 20px rgba(255,0,0,0.4); }
-                    #log { height: 400px; overflow-y: auto; border: 1px solid #111; padding: 10px; margin: 10px 0; color: #aaa; background: #080808; font-size: 12px; }
-                    .status-line { font-size: 24px; font-weight: bold; color: #fff; text-shadow: 2px 2px #ff4444; }
-                </style>
-            </head>
-            <body>
-                <div class="box">
-                    <div class="status-line">>> SYSTEM_OS: <span id="st">LOADING</span></div>
-                    <div id="log"></div>
-                    <div style="color:#444; font-size:10px;">AUTO-AFK ACTIVE: SWING | LOOK | JUMP</div>
-                </div>
-                <script>
-                    const socket = io();
-                    socket.on('log', (m) => {
-                        const d = document.getElementById('log');
-                        d.innerHTML += '<p style="margin:2px">> '+m+'</p>';
-                        d.scrollTop = d.scrollHeight;
-                    });
-                    socket.on('status', (s) => { document.getElementById('st').innerText = s.toUpperCase(); });
-                </script>
-            </body>
-        </html>
+<!DOCTYPE html>
+<html>
+<head>
+<title>INFERNAL VOID AFK PANEL</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+body{
+    background:#050505;
+    color:#0f0;
+    font-family:Consolas,monospace;
+    padding:20px;
+}
+.box{
+    max-width:900px;
+    margin:auto;
+    border:2px solid #ff4444;
+    background:#000;
+    padding:20px;
+}
+.status{
+    font-size:24px;
+    font-weight:bold;
+    margin-bottom:15px;
+}
+#log{
+    height:500px;
+    overflow-y:auto;
+    border:1px solid #222;
+    padding:10px;
+    background:#080808;
+}
+</style>
+</head>
+<body>
+<div class="box">
+    <div class="status">
+        STATUS:
+        <span id="status">LOADING...</span>
+    </div>
+
+    <div id="log"></div>
+</div>
+
+<script>
+const socket = io();
+
+socket.on('status', status => {
+    document.getElementById('status').innerText =
+        status.toUpperCase();
+});
+
+socket.on('log', message => {
+    const log = document.getElementById('log');
+
+    log.innerHTML += '<div>' + message + '</div>';
+    log.scrollTop = log.scrollHeight;
+});
+</script>
+</body>
+</html>
     `);
 });
 
-server.listen(port, () => {
-    sendLog("INFERNAL_VOID_OS initialized. Elite AFK Mode Engaged.");
+server.listen(PORT, () => {
+    sendLog('Dashboard started.');
     createBot();
 });
