@@ -10,7 +10,7 @@ const io = new Server(server);
 const PORT = process.env.PORT || 8080;
 
 const config = {
-    host: 'InfernalVoid.play.hosting',
+    host: 'infernalvoid.mcsh.io',
     username: 'INFERNAL_VOID',
     version: '1.21.1'
 };
