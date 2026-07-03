@@ -116,7 +116,7 @@ function createBot() {
 
             await sleep(3000);
 
-            bot.chat('/login Pass1234');
+            bot.chat('/login pass1234');
             sendLog('Executed /login');
 
             await sleep(5000);
