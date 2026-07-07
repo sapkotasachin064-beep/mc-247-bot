@@ -1,6 +1,7 @@
 const mineflayer = require('mineflayer');
 const express = require('express');
 const http = require('http');
+const https = require('https');
 const { Server } = require('socket.io');
 
 const app = express();
@@ -8,6 +9,9 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 const PORT = process.env.PORT || 8080;
+
+// IMPORTANT: set this to your actual Render URL so the keep-alive ping works
+const SELF_URL = process.env.SELF_URL || 'https://mc-247-bot.onrender.com/';
 
 const config = {
     host: 'infernalvoid.mcsh.io',
@@ -19,6 +23,7 @@ let bot = null;
 let botStatus = 'Offline';
 let antiAfkInterval = null;
 let reconnectTimeout = null;
+let keepAliveInterval = null;
 
 function sendLog(message) {
     const time = new Date().toLocaleTimeString();
@@ -86,6 +91,26 @@ function scheduleReconnect() {
     }, 15000);
 }
 
+// --- Keep-alive: stops Render's free tier from spinning the container down ---
+function startKeepAlive() {
+    if (keepAliveInterval) return;
+
+    keepAliveInterval = setInterval(() => {
+        try {
+            const client = SELF_URL.startsWith('https') ? https : http;
+            client.get(SELF_URL, res => {
+                // Just draining the response so it doesn't hang open
+                res.on('data', () => {});
+                res.on('end', () => {});
+            }).on('error', err => {
+                sendLog(`Keep-alive ping failed: ${err.message}`);
+            });
+        } catch (err) {
+            sendLog(`Keep-alive error: ${err.message}`);
+        }
+    }, 10 * 60 * 1000); // every 10 minutes, well under Render's 15-min sleep window
+}
+
 function createBot() {
     stopAntiAFK();
 
@@ -147,9 +172,13 @@ function createBot() {
         stopAntiAFK();
     });
 
+    // FIX: errors used to just get logged with no recovery path.
+    // Now they trigger the same reconnect logic as a clean disconnect.
     bot.on('error', err => {
         updateStatus('Error');
         sendLog(`ERROR: ${err.message}`);
+        stopAntiAFK();
+        scheduleReconnect();
     });
 
     bot.on('end', () => {
@@ -226,7 +255,22 @@ socket.on('log', message => {
     `);
 });
 
+// Simple health-check endpoint (also handy for an external pinger like UptimeRobot)
+app.get('/health', (req, res) => {
+    res.json({ status: botStatus, uptime: process.uptime() });
+});
+
+// --- Crash safety nets: log instead of silently dying ---
+process.on('uncaughtException', err => {
+    sendLog(`UNCAUGHT EXCEPTION: ${err.message}`);
+});
+
+process.on('unhandledRejection', reason => {
+    sendLog(`UNHANDLED REJECTION: ${reason}`);
+});
+
 server.listen(PORT, () => {
     sendLog('Dashboard started.');
     createBot();
+    startKeepAlive();
 });
