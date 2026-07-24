@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 8080;
 const SELF_URL = process.env.SELF_URL || 'https://mc-247-bot.onrender.com/';
 
 const config = {
-    host: 'infernalvoid.mcsh.io',
+    host: 'infernalvoid.play.hosting',
     username: 'INFERNAL_VOID',
     version: '1.21.1'
 };
